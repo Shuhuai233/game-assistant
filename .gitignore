@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec.bak
+
+# PyInstaller
+*.manifest
+*.log
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Whisper models (large, downloaded at runtime)
+*.bin
+*.pt
+
+# User config with secrets
+# config.yaml is tracked as a template, but users should not commit their API keys

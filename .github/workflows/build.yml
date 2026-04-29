@@ -1,0 +1,53 @@
+name: Build and Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:  # allow manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe
+        run: |
+          pyinstaller game_assistant.spec --clean
+
+      - name: Package release
+        run: |
+          mkdir release
+          copy dist\GameAssistant.exe release\
+          copy config.yaml release\
+          copy README.md release\
+
+      - name: Create zip
+        run: |
+          Compress-Archive -Path release\* -DestinationPath GameAssistant-${{ github.ref_name }}-windows.zip
+        shell: pwsh
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: GameAssistant-${{ github.ref_name }}-windows.zip
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameAssistant-windows
+          path: release/

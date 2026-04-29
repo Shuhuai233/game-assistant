@@ -1,0 +1,114 @@
+# Game Assistant Configuration
+# Copy this file to config.yaml and edit your settings
+
+# ============================================================
+# LLM Provider Settings
+# Supported: deepseek, siliconflow, openai, groq, ollama, custom
+# ============================================================
+llm:
+  provider: deepseek
+  
+  # --- DeepSeek (recommended for China) ---
+  # Sign up: https://platform.deepseek.com
+  deepseek:
+    api_key: "your-deepseek-api-key"
+    model: "deepseek-chat"
+    base_url: "https://api.deepseek.com"
+  
+  # --- SiliconFlow (free tier available, China accessible) ---
+  # Sign up: https://siliconflow.cn
+  siliconflow:
+    api_key: "your-siliconflow-api-key"
+    model: "deepseek-ai/DeepSeek-V2.5"
+    base_url: "https://api.siliconflow.cn/v1"
+  
+  # --- OpenAI ---
+  openai:
+    api_key: "your-openai-api-key"
+    model: "gpt-4o-mini"
+    base_url: "https://api.openai.com/v1"
+  
+  # --- Groq (free tier, fast, may need VPN in China) ---
+  # Sign up: https://console.groq.com
+  groq:
+    api_key: "your-groq-api-key"
+    model: "llama-3.1-70b-versatile"
+    base_url: "https://api.groq.com/openai/v1"
+  
+  # --- Ollama (local, free, needs GPU) ---
+  ollama:
+    model: "qwen2.5:7b"
+    base_url: "http://localhost:11434/v1"
+  
+  # --- Custom OpenAI-compatible endpoint ---
+  custom:
+    api_key: "your-api-key"
+    model: "your-model-name"
+    base_url: "https://your-api-endpoint/v1"
+
+# ============================================================
+# Speech-to-Text Settings
+# Supported: faster_whisper, fun_asr
+# ============================================================
+stt:
+  engine: faster_whisper
+  
+  faster_whisper:
+    model_size: "base"    # tiny, base, small, medium, large-v3
+    language: "zh"        # zh, en, ja, etc. or null for auto-detect
+    device: "auto"        # auto, cpu, cuda
+  
+  fun_asr:
+    model: "iic/SenseVoiceSmall"
+
+# ============================================================
+# Text-to-Speech Settings
+# Supported: edge_tts, pyttsx3
+# ============================================================
+tts:
+  engine: edge_tts
+  
+  edge_tts:
+    voice: "zh-CN-XiaoxiaoNeural"
+    # Other voices:
+    #   zh-CN-YunxiNeural (male)
+    #   en-US-JennyNeural (English female)
+    #   en-US-GuyNeural (English male)
+    #   ja-JP-NanamiNeural (Japanese female)
+    rate: "+0%"           # speech rate, e.g. "+20%" or "-10%"
+  
+  pyttsx3:
+    rate: 180
+
+# ============================================================
+# Hotkey Settings
+# ============================================================
+hotkey:
+  push_to_talk: "caps lock"    # key to hold for recording
+  screenshot: "f8"             # key to take screenshot and ask AI about it
+  quit: "ctrl+shift+q"        # key to quit the app
+
+# ============================================================
+# Screen Capture (optional, for vision models)
+# ============================================================
+screen_capture:
+  enabled: false
+  monitor: 0                   # 0 = primary monitor
+
+# ============================================================
+# Game Context (customize per game)
+# ============================================================
+game:
+  name: "General"
+  system_prompt: |
+    You are a helpful game assistant. The player will ask you questions
+    about their current game. Help them with:
+    - Mission objectives and how to complete them
+    - Navigation and directions
+    - Strategy and combat tips
+    - Item locations and crafting recipes
+    
+    Keep answers concise and actionable. The player is in the middle
+    of gameplay so be brief.
+    
+    Respond in the same language the player uses.
