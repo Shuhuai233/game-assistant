@@ -1,15 +1,92 @@
 """
 Configuration loader for Game Assistant.
 Reads config.yaml and provides typed access to settings.
+Auto-creates default config if missing.
 """
 
 import os
 import yaml
 from dataclasses import dataclass, field
 from typing import Optional
+from logger import logger
 
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+
+DEFAULT_CONFIG = {
+    "llm": {
+        "provider": "deepseek",
+        "deepseek": {
+            "api_key": "",
+            "model": "deepseek-chat",
+            "base_url": "https://api.deepseek.com",
+        },
+        "siliconflow": {
+            "api_key": "",
+            "model": "deepseek-ai/DeepSeek-V2.5",
+            "base_url": "https://api.siliconflow.cn/v1",
+        },
+        "openai": {
+            "api_key": "",
+            "model": "gpt-4o-mini",
+            "base_url": "https://api.openai.com/v1",
+        },
+        "groq": {
+            "api_key": "",
+            "model": "llama-3.1-70b-versatile",
+            "base_url": "https://api.groq.com/openai/v1",
+        },
+        "ollama": {
+            "api_key": "",
+            "model": "qwen2.5:7b",
+            "base_url": "http://localhost:11434/v1",
+        },
+        "custom": {
+            "api_key": "",
+            "model": "",
+            "base_url": "",
+        },
+    },
+    "stt": {
+        "engine": "faster_whisper",
+        "faster_whisper": {
+            "model_size": "base",
+            "language": "zh",
+            "device": "auto",
+        },
+        "fun_asr": {
+            "model": "iic/SenseVoiceSmall",
+        },
+    },
+    "tts": {
+        "engine": "edge_tts",
+        "edge_tts": {
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "rate": "+0%",
+        },
+        "pyttsx3": {
+            "rate": 180,
+        },
+    },
+    "hotkey": {
+        "push_to_talk": "caps lock",
+        "screenshot": "f8",
+        "quit": "ctrl+shift+q",
+    },
+    "screen_capture": {
+        "enabled": False,
+        "monitor": 0,
+    },
+    "game": {
+        "name": "General",
+        "system_prompt": (
+            "You are a helpful game assistant. The player will ask you questions "
+            "about their current game. Help them with mission objectives, navigation, "
+            "strategy, and tips. Keep answers concise and actionable. "
+            "Respond in the same language the player uses."
+        ),
+    },
+}
 
 
 @dataclass
@@ -52,15 +129,37 @@ class Config:
     game_system_prompt: str = "You are a helpful game assistant."
 
 
+def is_first_run(path: str = CONFIG_PATH) -> bool:
+    """Check if this is the first run (no config or no API key set)."""
+    if not os.path.exists(path):
+        return True
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        provider = raw.get("llm", {}).get("provider", "deepseek")
+        api_key = raw.get("llm", {}).get(provider, {}).get("api_key", "")
+        # Ollama doesn't need an API key
+        if provider == "ollama":
+            return False
+        return not api_key or api_key.startswith("your-")
+    except:
+        return True
+
+
+def ensure_config_exists(path: str = CONFIG_PATH):
+    """Create default config.yaml if it doesn't exist."""
+    if not os.path.exists(path):
+        logger.info(f"Creating default config at {path}")
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
 def load_config(path: str = CONFIG_PATH) -> Config:
     """Load configuration from YAML file."""
-    if not os.path.exists(path):
-        print(f"[Warning] Config file not found: {path}")
-        print("[Warning] Using default settings. Copy config.yaml and edit it.")
-        return Config()
+    ensure_config_exists(path)
 
     with open(path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
+        raw = yaml.safe_load(f) or {}
 
     cfg = Config()
 
@@ -68,7 +167,6 @@ def load_config(path: str = CONFIG_PATH) -> Config:
     llm = raw.get("llm", {})
     cfg.llm_provider = llm.get("provider", "deepseek")
 
-    # Parse all provider configs
     for provider_name in ["deepseek", "siliconflow", "openai", "groq", "ollama", "custom"]:
         prov = llm.get(provider_name, {})
         cfg.llm_configs[provider_name] = LLMProviderConfig(

@@ -6,6 +6,7 @@ All providers use OpenAI-compatible API format, so we just swap base_url and api
 import base64
 from openai import OpenAI
 from config_loader import Config, LLMProviderConfig
+from logger import logger
 
 
 class LLMClient:
@@ -21,7 +22,6 @@ class LLMClient:
         self.system_prompt = config.game_system_prompt
         self.conversation_history = []
 
-        # All supported providers use OpenAI-compatible API
         api_key = self.provider_config.api_key or "no-key"
         self.client = OpenAI(
             api_key=api_key,
@@ -29,9 +29,7 @@ class LLMClient:
         )
         self.model = self.provider_config.model
 
-        print(f"[LLM] Provider: {self.provider_name}")
-        print(f"[LLM] Model: {self.model}")
-        print(f"[LLM] Endpoint: {self.provider_config.base_url}")
+        logger.info(f"LLM init: provider={self.provider_name}, model={self.model}")
 
     def reset_conversation(self):
         """Clear conversation history."""
@@ -42,9 +40,7 @@ class LLMClient:
         Send a question to the LLM and return the response.
         Optionally include a screenshot for vision models.
         """
-        # Build user message
         if screenshot_base64:
-            # Vision message format
             content = [
                 {"type": "text", "text": question},
                 {
@@ -62,7 +58,6 @@ class LLMClient:
             "content": content
         })
 
-        # Build messages with system prompt
         messages = [
             {"role": "system", "content": self.system_prompt}
         ] + self.conversation_history
@@ -76,19 +71,16 @@ class LLMClient:
             )
             answer = response.choices[0].message.content
 
-            # Add assistant response to history
             self.conversation_history.append({
                 "role": "assistant",
                 "content": answer
             })
 
-            # Keep conversation history manageable (last 20 messages)
             if len(self.conversation_history) > 20:
                 self.conversation_history = self.conversation_history[-20:]
 
             return answer
 
         except Exception as e:
-            error_msg = f"[LLM Error] {e}"
-            print(error_msg)
-            return f"Sorry, AI request failed: {e}"
+            logger.error(f"LLM request failed: {e}")
+            return f"AI request failed: {e}"

@@ -3,10 +3,10 @@ Speech-to-Text module.
 Supports faster-whisper (local) and FunASR (local).
 """
 
-import io
 import tempfile
 import os
 from config_loader import Config
+from logger import logger
 
 
 class STTEngine:
@@ -33,17 +33,16 @@ class FasterWhisperSTT(STTEngine):
 
         compute_type = "float16" if device == "cuda" else "int8"
         self.language = config.stt_language
-        
-        print(f"[STT] Loading faster-whisper model '{model_size}' on {device}...")
+
+        logger.info(f"Loading faster-whisper model '{model_size}' on {device}")
         self.model = WhisperModel(
             model_size,
             device=device,
             compute_type=compute_type
         )
-        print("[STT] Model loaded.")
+        logger.info("STT model loaded")
 
     def transcribe(self, audio_bytes: bytes) -> str:
-        # Write to temp file (faster-whisper needs a file path)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_bytes)
             tmp_path = f.name
@@ -56,7 +55,7 @@ class FasterWhisperSTT(STTEngine):
                 vad_filter=True,
             )
             text = "".join(seg.text for seg in segments).strip()
-            print(f"[STT] Detected language: {info.language} (prob: {info.language_probability:.2f})")
+            logger.info(f"Transcribed: lang={info.language} prob={info.language_probability:.2f}")
             return text
         finally:
             os.unlink(tmp_path)
@@ -69,9 +68,9 @@ class FunASRSTT(STTEngine):
         from funasr import AutoModel
 
         model_name = config.stt_funasr_model
-        print(f"[STT] Loading FunASR model '{model_name}'...")
+        logger.info(f"Loading FunASR model '{model_name}'")
         self.model = AutoModel(model=model_name)
-        print("[STT] Model loaded.")
+        logger.info("FunASR model loaded")
 
     def transcribe(self, audio_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -96,4 +95,4 @@ def create_stt_engine(config: Config) -> STTEngine:
     elif engine == "fun_asr":
         return FunASRSTT(config)
     else:
-        raise ValueError(f"Unknown STT engine: {engine}. Supported: faster_whisper, fun_asr")
+        raise ValueError(f"Unknown STT engine: {engine}")

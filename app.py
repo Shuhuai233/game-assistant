@@ -1,6 +1,7 @@
 """
-System tray application - main entry point for GUI mode.
-Runs the assistant loop in a background thread, shows overlay on top of game.
+System tray application — the ONLY entry point.
+Pure GUI, no terminal, no console.
+Auto-opens Settings on first run if no API key is configured.
 """
 
 import sys
@@ -8,13 +9,14 @@ import os
 import threading
 import time
 
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
+from PyQt6.QtCore import Qt, QTimer
 
 from overlay import OverlayWindow
 from settings_dialog import SettingsDialog
-from config_loader import load_config
+from config_loader import load_config, is_first_run, ensure_config_exists, CONFIG_PATH
+from logger import logger
 
 
 def create_default_icon():
@@ -23,11 +25,9 @@ def create_default_icon():
     pixmap.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    # Circle background
     painter.setBrush(QColor(40, 120, 220))
     painter.setPen(Qt.PenStyle.NoPen)
     painter.drawEllipse(4, 4, 56, 56)
-    # "G" letter
     painter.setPen(QColor(255, 255, 255))
     painter.setFont(QFont("Arial", 32, QFont.Weight.Bold))
     painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "G")
@@ -42,14 +42,8 @@ class AssistantWorker:
         self.overlay = overlay
         self.running = False
         self.thread = None
-        self.config = None
-        self.llm = None
-        self.stt = None
-        self.tts = None
-        self.screen = None
 
     def start(self):
-        """Load config and start the background loop."""
         if self.running:
             return
         self.running = True
@@ -57,19 +51,15 @@ class AssistantWorker:
         self.thread.start()
 
     def stop(self):
-        """Stop the background loop."""
         self.running = False
 
     def reload(self):
-        """Reload config (after settings change)."""
         self.stop()
-        # Wait for thread to finish
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2)
         self.start()
 
     def _run(self):
-        """Main assistant loop (runs in background thread)."""
         import keyboard
         from llm_client import LLMClient
         from stt_engine import create_stt_engine
@@ -78,32 +68,30 @@ class AssistantWorker:
         from audio_recorder import record_while_pressed
 
         try:
-            self.config = load_config()
+            config = load_config()
 
-            self.overlay.set_status("Loading AI model...")
-            self.llm = LLMClient(self.config)
+            self.overlay.set_status("Loading AI...")
+            llm = LLMClient(config)
 
             self.overlay.set_status("Loading speech recognition...")
-            self.stt = create_stt_engine(self.config)
+            stt = create_stt_engine(config)
 
-            self.tts = create_tts_engine(self.config)
-            self.screen = ScreenCapture(self.config)
+            tts = create_tts_engine(config)
+            screen = ScreenCapture(config)
 
-            ptt_key = self.config.hotkey_push_to_talk
+            ptt_key = config.hotkey_push_to_talk
             self.overlay.set_status(f"Ready! Hold [{ptt_key.upper()}] to talk")
             time.sleep(2)
             self.overlay.clear()
 
         except Exception as e:
+            logger.error(f"Init failed: {e}")
             self.overlay.set_status(f"Error: {e}")
-            print(f"[Error] Init failed: {e}")
             self.running = False
             return
 
-        # Main loop
         while self.running:
             try:
-                # Wait for push-to-talk key
                 keyboard.wait(ptt_key)
                 if not self.running:
                     break
@@ -121,7 +109,7 @@ class AssistantWorker:
 
                 # Transcribe
                 self.overlay.set_status("Transcribing...")
-                question = self.stt.transcribe(audio_bytes)
+                question = stt.transcribe(audio_bytes)
                 if not question:
                     self.overlay.set_status("No speech detected")
                     time.sleep(1)
@@ -132,13 +120,13 @@ class AssistantWorker:
 
                 # Screenshot
                 screenshot_b64 = None
-                if self.config.screen_capture_enabled:
+                if config.screen_capture_enabled:
                     self.overlay.set_status("Capturing screen...")
-                    screenshot_b64 = self.screen.capture()
+                    screenshot_b64 = screen.capture()
 
                 # Ask AI
                 self.overlay.set_status("Thinking...")
-                answer = self.llm.ask(question, screenshot_b64)
+                answer = llm.ask(question, screenshot_b64)
 
                 # Show response
                 self.overlay.set_status("")
@@ -146,11 +134,11 @@ class AssistantWorker:
 
                 # Speak
                 self.overlay.set_status("Speaking...")
-                self.tts.speak(answer)
+                tts.speak(answer)
                 self.overlay.set_status("")
 
             except Exception as e:
-                print(f"[Error] Loop: {e}")
+                logger.error(f"Loop error: {e}")
                 self.overlay.set_status(f"Error: {e}")
                 time.sleep(2)
                 self.overlay.clear()
@@ -162,6 +150,7 @@ class TrayApp:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
+        self.app.setApplicationName("Game Assistant")
 
         # Overlay
         self.overlay = OverlayWindow()
@@ -177,17 +166,17 @@ class TrayApp:
         # Tray menu
         menu = QMenu()
 
-        status_action = menu.addAction("Game Assistant")
-        status_action.setEnabled(False)
+        title = menu.addAction("Game Assistant")
+        title.setEnabled(False)
         menu.addSeparator()
 
         settings_action = menu.addAction("Settings")
         settings_action.triggered.connect(self._open_settings)
 
-        toggle_overlay = menu.addAction("Toggle Overlay")
-        toggle_overlay.triggered.connect(self._toggle_overlay)
+        toggle_action = menu.addAction("Toggle Overlay")
+        toggle_action.triggered.connect(self._toggle_overlay)
 
-        restart_action = menu.addAction("Restart Assistant")
+        restart_action = menu.addAction("Restart")
         restart_action.triggered.connect(self._restart)
 
         menu.addSeparator()
@@ -200,26 +189,48 @@ class TrayApp:
 
     def run(self):
         """Start the application."""
-        self.tray.show()
-        self.tray.showMessage(
-            "Game Assistant",
-            "Running in system tray. Right-click for options.",
-            QSystemTrayIcon.MessageIcon.Information,
-            2000
-        )
+        # Ensure config exists
+        ensure_config_exists()
 
-        # Start assistant worker
-        self.worker.start()
+        self.tray.show()
+
+        # First run? Open settings immediately
+        if is_first_run():
+            logger.info("First run detected, opening settings")
+            # Use a timer to open settings after event loop starts
+            QTimer.singleShot(500, self._first_run_settings)
+        else:
+            # Normal start
+            self.tray.showMessage(
+                "Game Assistant",
+                "Running in system tray. Right-click for options.",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
+            self.worker.start()
 
         return self.app.exec()
+
+    def _first_run_settings(self):
+        """Show welcome message and open settings on first run."""
+        msg = QMessageBox()
+        msg.setWindowTitle("Game Assistant")
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setText("Welcome to Game Assistant!")
+        msg.setInformativeText(
+            "Please configure your AI provider and push-to-talk key to get started."
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+        self._open_settings()
 
     def _open_settings(self):
         dialog = SettingsDialog()
         if dialog.exec():
-            # Settings were saved, reload
             self.tray.showMessage(
                 "Game Assistant",
-                "Settings saved. Restarting assistant...",
+                "Settings saved. Starting assistant...",
                 QSystemTrayIcon.MessageIcon.Information,
                 1500
             )
@@ -252,6 +263,7 @@ class TrayApp:
 
 
 def main():
+    logger.info("Game Assistant starting")
     app = TrayApp()
     sys.exit(app.run())
 

@@ -10,6 +10,9 @@ build/
 
 # PyInstaller
 *.manifest
+
+# Logs
+logs/
 *.log
 
 # Virtual environment
