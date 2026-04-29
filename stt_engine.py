@@ -1,12 +1,37 @@
 """
 Speech-to-Text module.
 Supports faster-whisper (local) and FunASR (local).
+
+IMPORTANT: ONNX Runtime GPU providers (CUDA, TensorRT) are disabled by default
+to avoid crashes on systems without proper GPU drivers. STT runs on CPU which
+is fast enough for short voice clips.
 """
 
-import tempfile
 import os
+import sys
+import tempfile
 from config_loader import Config
 from logger import logger
+
+# ============================================================
+# CRITICAL: Disable ONNX Runtime GPU providers BEFORE any import
+# that might trigger onnxruntime. This prevents the
+# "CUDA/TensorRT provider not available" crash on systems
+# without NVIDIA GPU or proper drivers.
+# ============================================================
+os.environ["ORT_DISABLE_ALL_PROVIDERS"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+# Also tell ctranslate2 to use CPU
+os.environ["CT2_FORCE_CPU"] = "1"
+
+# Suppress ONNX runtime warnings
+try:
+    import onnxruntime
+    # Force CPU execution provider only
+    onnxruntime.set_default_logger_severity(3)  # suppress warnings
+except ImportError:
+    pass
 
 
 class STTEngine:
@@ -16,21 +41,15 @@ class STTEngine:
 
 
 class FasterWhisperSTT(STTEngine):
-    """Local STT using faster-whisper."""
+    """Local STT using faster-whisper. Always runs on CPU for compatibility."""
 
     def __init__(self, config: Config):
         model_size = config.stt_model_size
-        device = config.stt_device
-
-        if device == "auto":
-            try:
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                device = "cpu"
-
-        compute_type = "float16" if device == "cuda" else "int8"
         self.language = config.stt_language
+
+        # Always use CPU to avoid ONNX/CUDA issues on end-user machines
+        device = "cpu"
+        compute_type = "int8"
 
         logger.info(f"Loading faster-whisper model '{model_size}' on {device} ({compute_type})")
 
@@ -39,22 +58,16 @@ class FasterWhisperSTT(STTEngine):
             self.model = WhisperModel(
                 model_size,
                 device=device,
-                compute_type=compute_type
+                compute_type=compute_type,
+                cpu_threads=4,
             )
+            logger.info("STT model loaded successfully")
         except Exception as e:
-            # If CUDA/ONNX fails, fallback to CPU with int8
-            if device != "cpu":
-                logger.warning(f"Failed to load on {device}: {e}. Falling back to CPU.")
-                from faster_whisper import WhisperModel
-                self.model = WhisperModel(
-                    model_size,
-                    device="cpu",
-                    compute_type="int8"
-                )
-            else:
-                raise
-
-        logger.info("STT model loaded")
+            logger.error(f"Failed to load STT model: {e}")
+            raise RuntimeError(
+                f"Speech recognition failed to load: {e}\n"
+                f"Try restarting the application."
+            )
 
     def transcribe(self, audio_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:

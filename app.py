@@ -180,6 +180,9 @@ class TrayApp:
         restart_action = menu.addAction("Restart")
         restart_action.triggered.connect(self._restart)
 
+        logs_action = menu.addAction("View Logs")
+        logs_action.triggered.connect(self._open_logs)
+
         menu.addSeparator()
 
         quit_action = menu.addAction("Quit")
@@ -252,6 +255,18 @@ class TrayApp:
             QSystemTrayIcon.MessageIcon.Information,
             1500
         )
+
+    def _open_logs(self):
+        """Open the log file in the default text editor."""
+        import subprocess
+        from logger import LOG_FILE
+        try:
+            os.startfile(LOG_FILE)
+        except AttributeError:
+            # Not Windows
+            subprocess.Popen(["xdg-open", LOG_FILE])
+        except Exception as e:
+            logger.error(f"Failed to open log file: {e}")
 
     def _quit(self):
         self.worker.stop()
