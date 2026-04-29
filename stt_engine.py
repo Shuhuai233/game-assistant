@@ -82,8 +82,12 @@ class FasterWhisperSTT(STTEngine):
                 beam_size=5,
                 vad_filter=True,
             )
-            text = "".join(seg.text for seg in segments).strip()
-            logger.info(f"Transcribed: lang={info.language} prob={info.language_probability:.2f}")
+            text_parts = []
+            for seg in segments:
+                logger.info(f"  segment: [{seg.start:.1f}s-{seg.end:.1f}s] '{seg.text}'")
+                text_parts.append(seg.text)
+            text = "".join(text_parts).strip()
+            logger.info(f"Transcribed: lang={info.language} prob={info.language_probability:.2f} text='{text}'")
             return text
         except Exception as e:
             # If VAD fails (missing onnx file), retry without VAD
@@ -96,8 +100,12 @@ class FasterWhisperSTT(STTEngine):
                         beam_size=5,
                         vad_filter=False,
                     )
-                    text = "".join(seg.text for seg in segments).strip()
-                    logger.info(f"Transcribed (no VAD): lang={info.language}")
+                    text_parts = []
+                    for seg in segments:
+                        logger.info(f"  segment (no VAD): [{seg.start:.1f}s-{seg.end:.1f}s] '{seg.text}'")
+                        text_parts.append(seg.text)
+                    text = "".join(text_parts).strip()
+                    logger.info(f"Transcribed (no VAD): lang={info.language} text='{text}'")
                     return text
                 except Exception as e2:
                     logger.error(f"Transcription failed even without VAD: {e2}")

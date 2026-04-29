@@ -2,13 +2,17 @@
 Settings dialog — GUI for configuring provider, API key, keybinds, audio devices, language.
 """
 
+import threading
+import time
+import numpy as np
 import keyboard as kb_module
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
-    QGroupBox, QTabWidget, QWidget, QCheckBox, QTextEdit
+    QGroupBox, QTabWidget, QWidget, QCheckBox, QTextEdit,
+    QProgressBar, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
 import yaml
@@ -252,6 +256,38 @@ class SettingsDialog(QDialog):
             pass
         form.addRow("Microphone:", self.mic_combo)
 
+        # --- Mic Test ---
+        mic_test_layout = QHBoxLayout()
+
+        self.mic_test_btn = QPushButton("Test Microphone")
+        self.mic_test_btn.setStyleSheet("padding: 6px 16px;")
+        self.mic_test_btn.clicked.connect(self._start_mic_test)
+        mic_test_layout.addWidget(self.mic_test_btn)
+
+        self.mic_stop_btn = QPushButton("Stop")
+        self.mic_stop_btn.setStyleSheet("padding: 6px 16px;")
+        self.mic_stop_btn.clicked.connect(self._stop_mic_test)
+        self.mic_stop_btn.setEnabled(False)
+        mic_test_layout.addWidget(self.mic_stop_btn)
+
+        mic_test_layout.addStretch()
+        form.addRow("", mic_test_layout)
+
+        # Volume meter
+        self.volume_bar = QProgressBar()
+        self.volume_bar.setRange(0, 100)
+        self.volume_bar.setValue(0)
+        self.volume_bar.setTextVisible(True)
+        self.volume_bar.setFormat("Volume: %v%")
+        self.volume_bar.setFixedHeight(22)
+        form.addRow("", self.volume_bar)
+
+        # Mic test status label
+        self.mic_status_label = QLabel("")
+        self.mic_status_label.setStyleSheet("color: #888; padding: 2px;")
+        self.mic_status_label.setWordWrap(True)
+        form.addRow("", self.mic_status_label)
+
         # --- Speaker ---
         self.speaker_combo = QComboBox()
         self.speaker_combo.addItem("System Default", None)
@@ -302,7 +338,148 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(form)
         layout.addStretch()
+
+        # Mic test state
+        self._mic_testing = False
+        self._mic_test_thread = None
+        self._volume_timer = QTimer()
+        self._volume_timer.timeout.connect(self._update_volume_display)
+        self._current_volume = 0
+        self._peak_volume = 0
+        self._mic_test_audio = None
+
         return widget
+
+    def _start_mic_test(self):
+        """Record from selected mic for 3 seconds, show live volume."""
+        if self._mic_testing:
+            return
+
+        self._mic_testing = True
+        self._peak_volume = 0
+        self._mic_test_audio = None
+        self.mic_test_btn.setEnabled(False)
+        self.mic_stop_btn.setEnabled(True)
+        self.mic_status_label.setText("Recording 3 seconds... Speak now!")
+        self.mic_status_label.setStyleSheet("color: #ff4444; font-weight: bold; padding: 2px;")
+        self.volume_bar.setValue(0)
+
+        # Start volume update timer
+        self._volume_timer.start(50)
+
+        # Record in background thread
+        self._mic_test_thread = threading.Thread(target=self._mic_test_worker, daemon=True)
+        self._mic_test_thread.start()
+
+    def _mic_test_worker(self):
+        """Background thread: record 3 seconds and measure volume."""
+        import sounddevice as sd
+
+        device_idx = self.mic_combo.currentData()
+        sample_rate = 16000
+        duration = 3.0
+        frames = []
+
+        try:
+            with sd.InputStream(
+                samplerate=sample_rate,
+                channels=1,
+                dtype="int16",
+                device=device_idx,
+            ) as stream:
+                start = time.time()
+                while self._mic_testing and (time.time() - start) < duration:
+                    data, _ = stream.read(1024)
+                    frames.append(data.copy())
+                    # Update live volume
+                    chunk_peak = int(np.max(np.abs(data)))
+                    self._current_volume = min(100, int(chunk_peak / 327))  # scale to 0-100
+                    if chunk_peak > self._peak_volume:
+                        self._peak_volume = chunk_peak
+        except Exception as e:
+            self._current_volume = -1  # signal error
+            self._mic_test_error = str(e)
+
+        if frames:
+            self._mic_test_audio = np.concatenate(frames, axis=0)
+
+        self._mic_testing = False
+        # Schedule UI update on main thread
+        QTimer.singleShot(0, self._mic_test_finished)
+
+    def _update_volume_display(self):
+        """Update the volume bar from the background thread's data."""
+        if self._current_volume >= 0:
+            self.volume_bar.setValue(self._current_volume)
+
+            # Color the bar based on level
+            if self._current_volume < 5:
+                self.volume_bar.setStyleSheet("QProgressBar::chunk { background: #666; }")
+            elif self._current_volume < 30:
+                self.volume_bar.setStyleSheet("QProgressBar::chunk { background: #44aa44; }")
+            elif self._current_volume < 70:
+                self.volume_bar.setStyleSheet("QProgressBar::chunk { background: #44cc44; }")
+            else:
+                self.volume_bar.setStyleSheet("QProgressBar::chunk { background: #ff4444; }")
+
+        if not self._mic_testing:
+            self._volume_timer.stop()
+
+    def _stop_mic_test(self):
+        """Stop mic test early."""
+        self._mic_testing = False
+
+    def _mic_test_finished(self):
+        """Called when mic test recording is done."""
+        self.mic_test_btn.setEnabled(True)
+        self.mic_stop_btn.setEnabled(False)
+        self._volume_timer.stop()
+
+        if self._current_volume < 0:
+            # Error occurred
+            self.mic_status_label.setText(
+                f"Error: {getattr(self, '_mic_test_error', 'Unknown error')}\n"
+                f"Check if the microphone is connected and not in use by another app."
+            )
+            self.mic_status_label.setStyleSheet("color: #ff4444; padding: 2px;")
+            return
+
+        peak = self._peak_volume
+        peak_pct = min(100, int(peak / 327))
+
+        if peak < 100:
+            status = "SILENT — No audio detected!"
+            detail = (
+                "Your microphone is not picking up any sound.\n"
+                "- Check if the correct microphone is selected above\n"
+                "- Check if the mic is muted in Windows Sound settings\n"
+                "- Try a different microphone"
+            )
+            color = "#ff4444"
+        elif peak < 500:
+            status = "VERY QUIET — Barely any audio"
+            detail = (
+                "The mic is picking up very little sound.\n"
+                "- Try speaking louder or moving closer to the mic\n"
+                "- Check mic volume in Windows Sound settings"
+            )
+            color = "#ffaa00"
+        elif peak < 3000:
+            status = "QUIET — Low volume"
+            detail = "Try speaking louder or boost mic volume in Windows settings."
+            color = "#ffaa00"
+        elif peak < 20000:
+            status = "GOOD — Mic is working!"
+            detail = "Audio level looks good for speech recognition."
+            color = "#44cc44"
+        else:
+            status = "LOUD — Mic is working! (may be too loud)"
+            detail = "Consider lowering mic volume to avoid distortion."
+            color = "#44cc44"
+
+        self.mic_status_label.setText(f"{status} (peak: {peak_pct}%)\n{detail}")
+        self.mic_status_label.setStyleSheet(f"color: {color}; padding: 2px;")
+        self.volume_bar.setValue(peak_pct)
 
     def _on_language_changed(self):
         self._populate_voices()

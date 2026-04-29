@@ -16,6 +16,9 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
 
+# Minimum recording length in seconds — ignore accidental taps
+MIN_DURATION = 0.5
+
 
 def get_input_devices() -> list:
     """Return list of (index, name) for available input (microphone) devices."""
@@ -40,15 +43,12 @@ def get_output_devices() -> list:
 def record_while_pressed(hotkey: str, device_index: int = None, max_duration: float = 30.0) -> bytes:
     """
     Record audio while the hotkey is held down.
-    Returns WAV file bytes.
-
-    Args:
-        hotkey: Key name to hold for recording
-        device_index: Microphone device index (None = system default)
-        max_duration: Max recording length in seconds
+    Returns WAV file bytes, or None if too short / silent.
     """
     frames = []
     start_time = time.time()
+
+    logger.info(f"Recording started (key={hotkey}, mic={device_index})")
 
     try:
         with sd.InputStream(
@@ -64,16 +64,35 @@ def record_while_pressed(hotkey: str, device_index: int = None, max_duration: fl
                 data, _ = stream.read(1024)
                 frames.append(data.copy())
     except Exception as e:
-        logger.error(f"Recording error: {e}")
+        logger.error(f"Recording error (mic device={device_index}): {e}")
         return None
 
     if not frames:
+        logger.warning("No audio frames captured")
         return None
 
     audio_data = np.concatenate(frames, axis=0)
     duration = len(audio_data) / SAMPLE_RATE
-    logger.info(f"Recorded {duration:.1f}s of audio")
 
+    # Check audio level
+    peak = np.max(np.abs(audio_data))
+    rms = np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
+    logger.info(f"Recorded {duration:.1f}s | peak={peak} rms={rms:.0f}")
+
+    # Too short — ignore accidental key taps
+    if duration < MIN_DURATION:
+        logger.info(f"Recording too short ({duration:.1f}s < {MIN_DURATION}s), ignoring")
+        return None
+
+    # Check if audio is essentially silent
+    if peak < 100:
+        logger.warning(
+            f"Audio appears silent (peak={peak}). "
+            f"Check microphone selection in Settings."
+        )
+        # Still return it — let STT decide
+
+    # Convert to WAV bytes
     wav_buffer = io.BytesIO()
     wavfile.write(wav_buffer, SAMPLE_RATE, audio_data)
     wav_buffer.seek(0)
