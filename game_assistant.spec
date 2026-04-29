@@ -33,6 +33,8 @@ a = Analysis(
         'edge_tts',
         # faster-whisper
         'faster_whisper',
+        'ctranslate2',
+        'onnxruntime',
         # OpenAI
         'openai',
         # Screen capture

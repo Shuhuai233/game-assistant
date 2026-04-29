@@ -19,8 +19,6 @@ class FasterWhisperSTT(STTEngine):
     """Local STT using faster-whisper."""
 
     def __init__(self, config: Config):
-        from faster_whisper import WhisperModel
-
         model_size = config.stt_model_size
         device = config.stt_device
 
@@ -34,12 +32,28 @@ class FasterWhisperSTT(STTEngine):
         compute_type = "float16" if device == "cuda" else "int8"
         self.language = config.stt_language
 
-        logger.info(f"Loading faster-whisper model '{model_size}' on {device}")
-        self.model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type
-        )
+        logger.info(f"Loading faster-whisper model '{model_size}' on {device} ({compute_type})")
+
+        try:
+            from faster_whisper import WhisperModel
+            self.model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type
+            )
+        except Exception as e:
+            # If CUDA/ONNX fails, fallback to CPU with int8
+            if device != "cpu":
+                logger.warning(f"Failed to load on {device}: {e}. Falling back to CPU.")
+                from faster_whisper import WhisperModel
+                self.model = WhisperModel(
+                    model_size,
+                    device="cpu",
+                    compute_type="int8"
+                )
+            else:
+                raise
+
         logger.info("STT model loaded")
 
     def transcribe(self, audio_bytes: bytes) -> str:
@@ -57,8 +71,14 @@ class FasterWhisperSTT(STTEngine):
             text = "".join(seg.text for seg in segments).strip()
             logger.info(f"Transcribed: lang={info.language} prob={info.language_probability:.2f}")
             return text
+        except Exception as e:
+            logger.error(f"Transcription failed: {e}")
+            return ""
         finally:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
 
 
 class FunASRSTT(STTEngine):
@@ -82,8 +102,14 @@ class FunASRSTT(STTEngine):
             if result and len(result) > 0:
                 return result[0].get("text", "").strip()
             return ""
+        except Exception as e:
+            logger.error(f"FunASR transcription failed: {e}")
+            return ""
         finally:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
 
 
 def create_stt_engine(config: Config) -> STTEngine:

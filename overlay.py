@@ -3,9 +3,9 @@ Overlay window - transparent floating indicator on top of the game.
 Shows a small status dot + AI responses. Designed to be unobtrusive.
 """
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect, QApplication, QScrollArea
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QSize
+from PyQt6.QtGui import QColor, QFont, QFontMetrics
 
 
 class OverlayWindow(QWidget):
@@ -14,6 +14,8 @@ class OverlayWindow(QWidget):
     update_status_signal = pyqtSignal(str)
     update_response_signal = pyqtSignal(str)
     update_question_signal = pyqtSignal(str)
+
+    OVERLAY_WIDTH = 560
 
     def __init__(self):
         super().__init__()
@@ -32,15 +34,15 @@ class OverlayWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.setFixedWidth(500)
-        self.setMinimumHeight(30)
+        self.setMinimumWidth(200)
+        self.setMaximumWidth(self.OVERLAY_WIDTH + 40)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 8, 16, 8)
         layout.setSpacing(4)
 
-        # Status row: small dot + short text, very compact
+        # Status row: small dot + short text
         status_row = QHBoxLayout()
         status_row.setSpacing(6)
 
@@ -60,7 +62,7 @@ class OverlayWindow(QWidget):
 
         layout.addLayout(status_row)
 
-        # Question label (what the user said) — small grey text
+        # Question label
         self.question_label = QLabel("")
         self.question_label.setFont(QFont("Segoe UI", 9))
         self.question_label.setStyleSheet("color: rgba(200,200,200,140); background: transparent;")
@@ -69,16 +71,18 @@ class OverlayWindow(QWidget):
         layout.addWidget(self.question_label)
         self.question_label.hide()
 
-        # Response label (AI answer) — main content
+        # Response label — allow full word wrap and vertical expansion
         self.response_label = QLabel("")
         self.response_label.setFont(QFont("Segoe UI", 12))
         self.response_label.setStyleSheet(
             "color: #ffffff; background: rgba(0, 0, 0, 160); "
-            "border-radius: 8px; padding: 10px;"
+            "border-radius: 8px; padding: 12px;"
         )
         self.response_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.response_label.setWordWrap(True)
-        self.response_label.setMaximumWidth(470)
+        self.response_label.setTextFormat(Qt.TextFormat.PlainText)
+        # Don't set fixed/max width on the label — let the layout handle it
+        self.response_label.setMinimumWidth(200)
         self._add_shadow(self.response_label)
         layout.addWidget(self.response_label)
         self.response_label.hide()
@@ -95,11 +99,26 @@ class OverlayWindow(QWidget):
         self.update_response_signal.connect(self._on_update_response)
         self.update_question_signal.connect(self._on_update_question)
 
-    def reposition(self):
-        from PyQt6.QtWidgets import QApplication
+    def _get_screen_geometry(self):
         screen = QApplication.primaryScreen()
         if screen:
-            geo = screen.availableGeometry()
+            return screen.availableGeometry()
+        return None
+
+    def reposition(self):
+        geo = self._get_screen_geometry()
+        if geo:
+            # Resize width to OVERLAY_WIDTH, let height be automatic
+            self.setFixedWidth(self.OVERLAY_WIDTH + 32)
+
+            # Force layout recalc so height is correct for the text
+            self.adjustSize()
+
+            # Cap max height to 40% of screen
+            max_h = int(geo.height() * 0.4)
+            if self.height() > max_h:
+                self.setFixedHeight(max_h)
+
             x = geo.x() + (geo.width() - self.width()) // 2
             y = geo.y() + geo.height() - self.height() - 60
             self.move(x, y)
@@ -127,21 +146,22 @@ class OverlayWindow(QWidget):
         if text:
             self.status_label.setText(text)
 
-            # Small colored dot based on state
-            dot_color = "rgba(255,255,255,100)"  # default dim white
+            dot_color = "rgba(255,255,255,100)"
             text_lower = text.lower()
             if "listen" in text_lower:
-                dot_color = "#ff4444"      # red dot while recording
+                dot_color = "#ff4444"
             elif "transcrib" in text_lower:
-                dot_color = "#ffaa00"      # orange
+                dot_color = "#ffaa00"
             elif "think" in text_lower:
-                dot_color = "#4488ff"      # blue
+                dot_color = "#4488ff"
             elif "speak" in text_lower:
-                dot_color = "#44cc44"      # green
+                dot_color = "#44cc44"
             elif "ready" in text_lower:
-                dot_color = "#44cc44"      # green
+                dot_color = "#44cc44"
             elif "error" in text_lower:
-                dot_color = "#ff4444"      # red
+                dot_color = "#ff4444"
+            elif "load" in text_lower:
+                dot_color = "#4488ff"
 
             self.status_dot.setStyleSheet(
                 f"background: {dot_color}; border-radius: 5px;"
@@ -161,7 +181,9 @@ class OverlayWindow(QWidget):
             self.question_label.show()
         else:
             self.question_label.hide()
-        self.adjustSize()
+        # Reset fixed height so adjustSize works
+        self.setMinimumHeight(30)
+        self.setMaximumHeight(16777215)
         self.reposition()
 
     @pyqtSlot(str)
@@ -170,7 +192,9 @@ class OverlayWindow(QWidget):
             self.response_label.setText(text)
             self.response_label.show()
             self.show()
-            self.adjustSize()
+            # Reset fixed height so adjustSize works
+            self.setMinimumHeight(30)
+            self.setMaximumHeight(16777215)
             self.reposition()
             hide_delay = max(6000, len(text) * 80)
             self._auto_hide_timer.start(hide_delay)
