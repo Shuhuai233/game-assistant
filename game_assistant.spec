@@ -5,11 +5,21 @@ Builds a single .exe with all dependencies bundled.
 
 Usage (on Windows):
     pip install pyinstaller
-    pyinstaller game_assistant.spec
+    python -m PyInstaller game_assistant.spec --clean
 """
 
 import sys
 import os
+
+# Find faster_whisper assets directory (contains silero_vad.onnx)
+import importlib.util
+faster_whisper_spec = importlib.util.find_spec("faster_whisper")
+faster_whisper_datas = []
+if faster_whisper_spec and faster_whisper_spec.origin:
+    fw_dir = os.path.dirname(faster_whisper_spec.origin)
+    assets_dir = os.path.join(fw_dir, "assets")
+    if os.path.isdir(assets_dir):
+        faster_whisper_datas.append((assets_dir, "faster_whisper/assets"))
 
 block_cipher = None
 
@@ -19,7 +29,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config.yaml', '.'),
-    ],
+    ] + faster_whisper_datas,
     hiddenimports=[
         # PyQt6
         'PyQt6.QtWidgets',

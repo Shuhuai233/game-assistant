@@ -40,6 +40,12 @@ logging.basicConfig(
 
 logger = logging.getLogger("GameAssistant")
 
+# Suppress noisy third-party loggers
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("faster_whisper").setLevel(logging.INFO)
+
 
 # --- Redirect stdout/stderr to log file ---
 # This catches print() calls from third-party libraries (ONNX, ctranslate2, etc.)

@@ -75,6 +75,7 @@ class FasterWhisperSTT(STTEngine):
             tmp_path = f.name
 
         try:
+            # Try with VAD filter first
             segments, info = self.model.transcribe(
                 tmp_path,
                 language=self.language,
@@ -85,8 +86,25 @@ class FasterWhisperSTT(STTEngine):
             logger.info(f"Transcribed: lang={info.language} prob={info.language_probability:.2f}")
             return text
         except Exception as e:
-            logger.error(f"Transcription failed: {e}")
-            return ""
+            # If VAD fails (missing onnx file), retry without VAD
+            if "ONNX" in str(e) or "NO_SUCHFILE" in str(e) or "silero" in str(e).lower():
+                logger.warning(f"VAD filter failed ({e}), retrying without VAD...")
+                try:
+                    segments, info = self.model.transcribe(
+                        tmp_path,
+                        language=self.language,
+                        beam_size=5,
+                        vad_filter=False,
+                    )
+                    text = "".join(seg.text for seg in segments).strip()
+                    logger.info(f"Transcribed (no VAD): lang={info.language}")
+                    return text
+                except Exception as e2:
+                    logger.error(f"Transcription failed even without VAD: {e2}")
+                    return ""
+            else:
+                logger.error(f"Transcription failed: {e}")
+                return ""
         finally:
             try:
                 os.unlink(tmp_path)
