@@ -27,6 +27,7 @@ a = Analysis(
         'PyQt6.QtGui',
         # Audio
         'sounddevice',
+        'soundfile',
         'scipy.io.wavfile',
         # Edge TTS
         'edge_tts',

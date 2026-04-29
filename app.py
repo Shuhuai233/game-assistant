@@ -80,6 +80,7 @@ class AssistantWorker:
             screen = ScreenCapture(config)
 
             ptt_key = config.hotkey_push_to_talk
+            mic_device = config.audio_input_device
             self.overlay.set_status(f"Ready! Hold [{ptt_key.upper()}] to talk")
             time.sleep(2)
             self.overlay.clear()
@@ -102,7 +103,7 @@ class AssistantWorker:
 
                 # Recording
                 self.overlay.set_status("Listening...")
-                audio_bytes = record_while_pressed(ptt_key)
+                audio_bytes = record_while_pressed(ptt_key, device_index=mic_device)
                 if audio_bytes is None:
                     self.overlay.clear()
                     continue

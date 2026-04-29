@@ -1,7 +1,7 @@
 """
 Text-to-Speech module.
 Supports edge-tts (free, online) and pyttsx3 (offline, Windows SAPI5).
-Uses PowerShell MediaPlayer for playback — no pygame dependency.
+Uses PowerShell MediaPlayer for playback. Supports output device selection.
 """
 
 import asyncio
@@ -18,8 +18,26 @@ class TTSEngine:
         raise NotImplementedError
 
 
-def _play_audio_file(filepath: str):
-    """Play an audio file on Windows without pygame."""
+def _play_audio_file(filepath: str, device_index: int = None):
+    """
+    Play an audio file on Windows.
+    device_index: output device index (None = system default).
+    """
+    # If a specific device is requested, try sounddevice first
+    if device_index is not None:
+        try:
+            import sounddevice as sd
+            import soundfile as sf
+            data, samplerate = sf.read(filepath)
+            sd.play(data, samplerate, device=device_index)
+            sd.wait()
+            return
+        except ImportError:
+            logger.warning("soundfile not available, falling back to PowerShell")
+        except Exception as e:
+            logger.warning(f"sounddevice playback failed: {e}")
+
+    # Fallback: PowerShell MediaPlayer (uses system default output)
     try:
         ps_cmd = (
             f'Add-Type -AssemblyName presentationCore; '
@@ -60,7 +78,8 @@ class EdgeTTSEngine(TTSEngine):
     def __init__(self, config: Config):
         self.voice = config.tts_voice
         self.rate = config.tts_rate
-        logger.info(f"TTS init: Edge TTS, voice={self.voice}")
+        self.output_device = config.audio_output_device
+        logger.info(f"TTS init: Edge TTS, voice={self.voice}, output_device={self.output_device}")
 
     def speak(self, text: str):
         asyncio.run(self._speak_async(text))
@@ -78,7 +97,7 @@ class EdgeTTSEngine(TTSEngine):
         await communicate.save(tmp_path)
 
         try:
-            _play_audio_file(tmp_path)
+            _play_audio_file(tmp_path, self.output_device)
         except Exception as e:
             logger.error(f"TTS playback error: {e}")
         finally:

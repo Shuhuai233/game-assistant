@@ -102,6 +102,10 @@ class Config:
     llm_provider: str = "deepseek"
     llm_configs: dict = field(default_factory=dict)
 
+    # Audio devices (None = system default)
+    audio_input_device: Optional[int] = None   # microphone device index
+    audio_output_device: Optional[int] = None  # speaker device index
+
     # STT
     stt_engine: str = "faster_whisper"
     stt_model_size: str = "base"
@@ -174,6 +178,13 @@ def load_config(path: str = CONFIG_PATH) -> Config:
             model=prov.get("model", ""),
             base_url=prov.get("base_url", ""),
         )
+
+    # --- Audio devices ---
+    audio = raw.get("audio", {})
+    input_dev = audio.get("input_device", None)
+    output_dev = audio.get("output_device", None)
+    cfg.audio_input_device = int(input_dev) if input_dev is not None else None
+    cfg.audio_output_device = int(output_dev) if output_dev is not None else None
 
     # --- STT ---
     stt = raw.get("stt", {})

@@ -1,9 +1,8 @@
 """
-Settings dialog — GUI for configuring provider, API key, keybinds, language.
+Settings dialog — GUI for configuring provider, API key, keybinds, audio devices, language.
 """
 
 import keyboard as kb_module
-import time
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
@@ -67,21 +66,17 @@ class KeyBindButton(QPushButton):
                 "QPushButton { padding: 8px 16px; font-size: 13px; "
                 "background-color: #cc4444; color: white; }"
             )
-            # Use a timer to start listening (avoid capturing the mouse click)
             QTimer.singleShot(200, self._start_listening)
 
     def _start_listening(self):
-        """Listen for a key press in a non-blocking way."""
         def on_key(event):
             if event.event_type == kb_module.KEY_DOWN:
                 self.bound_key = event.name
                 kb_module.unhook(hook)
                 self._listening = False
-                # Update display on UI thread
                 QTimer.singleShot(0, self._update_display)
 
         hook = kb_module.hook(on_key)
-        # Timeout: stop listening after 5 seconds
         QTimer.singleShot(5000, lambda: self._cancel_listening(hook))
 
     def _cancel_listening(self, hook):
@@ -100,15 +95,15 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Game Assistant - Settings")
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(450)
+        self.setMinimumWidth(520)
+        self.setMinimumHeight(480)
         self._load_config()
         self._init_ui()
 
     def _load_config(self):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                self.raw = yaml.safe_load(f)
+                self.raw = yaml.safe_load(f) or {}
         except:
             self.raw = {}
 
@@ -140,7 +135,6 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Provider selector
         form = QFormLayout()
         self.provider_combo = QComboBox()
         current_provider = self.raw.get("llm", {}).get("provider", "deepseek")
@@ -151,7 +145,6 @@ class SettingsDialog(QDialog):
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         form.addRow("Provider:", self.provider_combo)
 
-        # API Key
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_input.setPlaceholderText("Enter API key...")
@@ -160,14 +153,12 @@ class SettingsDialog(QDialog):
             self.api_key_input.setText(current_key)
         form.addRow("API Key:", self.api_key_input)
 
-        # Model
         self.model_input = QLineEdit()
         current_model = self.raw.get("llm", {}).get(current_provider, {}).get("model", "")
         self.model_input.setText(current_model)
         self.model_input.setPlaceholderText("Model name (e.g. deepseek-chat)")
         form.addRow("Model:", self.model_input)
 
-        # Base URL
         self.base_url_input = QLineEdit()
         current_url = self.raw.get("llm", {}).get(current_provider, {}).get("base_url", "")
         self.base_url_input.setText(current_url)
@@ -176,7 +167,6 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(form)
 
-        # Info label
         self.provider_info = QLabel()
         self.provider_info.setWordWrap(True)
         self.provider_info.setStyleSheet("color: #888; padding: 10px;")
@@ -247,6 +237,37 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         form = QFormLayout()
+
+        # --- Microphone ---
+        self.mic_combo = QComboBox()
+        self.mic_combo.addItem("System Default", None)
+        current_input = self.raw.get("audio", {}).get("input_device", None)
+        try:
+            from audio_recorder import get_input_devices
+            for dev_idx, dev_name in get_input_devices():
+                self.mic_combo.addItem(dev_name, dev_idx)
+                if current_input is not None and dev_idx == int(current_input):
+                    self.mic_combo.setCurrentIndex(self.mic_combo.count() - 1)
+        except Exception:
+            pass
+        form.addRow("Microphone:", self.mic_combo)
+
+        # --- Speaker ---
+        self.speaker_combo = QComboBox()
+        self.speaker_combo.addItem("System Default", None)
+        current_output = self.raw.get("audio", {}).get("output_device", None)
+        try:
+            from audio_recorder import get_output_devices
+            for dev_idx, dev_name in get_output_devices():
+                self.speaker_combo.addItem(dev_name, dev_idx)
+                if current_output is not None and dev_idx == int(current_output):
+                    self.speaker_combo.setCurrentIndex(self.speaker_combo.count() - 1)
+        except Exception:
+            pass
+        form.addRow("Speaker:", self.speaker_combo)
+
+        # --- Separator ---
+        form.addRow(QLabel(""))
 
         # STT engine
         self.stt_combo = QComboBox()
@@ -350,7 +371,14 @@ class SettingsDialog(QDialog):
         self.raw["hotkey"]["screenshot"] = self.screenshot_btn.bound_key
         self.raw["hotkey"]["quit"] = self.quit_btn.bound_key
 
-        # Audio
+        # Audio devices
+        self.raw.setdefault("audio", {})
+        mic_dev = self.mic_combo.currentData()
+        speaker_dev = self.speaker_combo.currentData()
+        self.raw["audio"]["input_device"] = mic_dev
+        self.raw["audio"]["output_device"] = speaker_dev
+
+        # STT / TTS
         self.raw.setdefault("stt", {})
         self.raw["stt"]["engine"] = self.stt_combo.currentData()
         self.raw["stt"].setdefault("faster_whisper", {})
