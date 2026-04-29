@@ -25,7 +25,7 @@ jobs:
 
       - name: Build exe
         run: |
-          pyinstaller game_assistant.spec --clean
+          python -m PyInstaller game_assistant.spec --clean
 
       - name: Package release
         run: |

@@ -38,8 +38,6 @@ a = Analysis(
         'mss',
         'mss.windows',
         'PIL',
-        # Pygame for audio playback
-        'pygame',
         # Keyboard
         'keyboard',
         # YAML

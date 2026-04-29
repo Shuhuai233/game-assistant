@@ -17,10 +17,10 @@ echo [1/3] Installing dependencies...
 pip install -r requirements.txt
 pip install pyinstaller
 
-:: Build
+:: Build (use python -m to avoid PATH issues)
 echo.
 echo [2/3] Building exe (this may take a few minutes)...
-pyinstaller game_assistant.spec --clean
+python -m PyInstaller game_assistant.spec --clean
 
 :: Copy config
 echo.
@@ -30,12 +30,15 @@ if not exist "dist\config.yaml" (
 )
 
 echo.
-echo ==========================================
-echo   Build complete!
-echo   Output: dist\GameAssistant.exe
-echo ==========================================
-echo.
-echo Users need to put config.yaml next to GameAssistant.exe
-echo or run the app and configure via Settings dialog.
+if exist "dist\GameAssistant.exe" (
+    echo ==========================================
+    echo   Build successful!
+    echo   Output: dist\GameAssistant.exe
+    echo ==========================================
+) else (
+    echo ==========================================
+    echo   Build FAILED. Check errors above.
+    echo ==========================================
+)
 echo.
 pause

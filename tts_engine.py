@@ -1,11 +1,14 @@
 """
 Text-to-Speech module.
 Supports edge-tts (free, online) and pyttsx3 (offline, Windows SAPI5).
+Uses winsound/subprocess for playback — no pygame dependency.
 """
 
 import asyncio
 import tempfile
 import os
+import subprocess
+import time
 import threading
 from config_loader import Config
 
@@ -14,6 +17,47 @@ class TTSEngine:
     """Base TTS interface."""
     def speak(self, text: str):
         raise NotImplementedError
+
+
+def _play_audio_file(filepath: str):
+    """
+    Play an audio file on Windows without pygame.
+    Tries multiple methods in order of preference.
+    """
+    try:
+        # Method 1: Use Windows Media Player via PowerShell (works on all Windows)
+        # This is non-blocking friendly and handles mp3 natively
+        ps_cmd = (
+            f'$player = New-Object System.Media.SoundPlayer; '
+            f'Add-Type -AssemblyName presentationCore; '
+            f'$media = New-Object System.Windows.Media.MediaPlayer; '
+            f'$media.Open([Uri]"{filepath}"); '
+            f'Start-Sleep -Milliseconds 300; '
+            f'$media.Play(); '
+            f'Start-Sleep -Milliseconds ($media.NaturalDuration.TimeSpan.TotalMilliseconds + 500); '
+            f'$media.Close()'
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            timeout=60,
+            capture_output=True
+        )
+        return
+    except Exception:
+        pass
+
+    try:
+        # Method 2: ffplay (if ffmpeg is installed)
+        subprocess.run(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", filepath],
+            timeout=60,
+            capture_output=True
+        )
+        return
+    except FileNotFoundError:
+        pass
+
+    print("[TTS] Warning: No audio player available. Install ffmpeg or use pyttsx3 engine.")
 
 
 class EdgeTTSEngine(TTSEngine):
@@ -40,19 +84,14 @@ class EdgeTTSEngine(TTSEngine):
         )
         await communicate.save(tmp_path)
 
-        # Play using pygame
+        # Play the audio file
         try:
-            import pygame
-            if not pygame.mixer.get_init():
-                pygame.mixer.init()
-            pygame.mixer.music.load(tmp_path)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                await asyncio.sleep(0.1)
+            _play_audio_file(tmp_path)
         except Exception as e:
             print(f"[TTS] Playback error: {e}")
-            print("[TTS] Make sure pygame is installed: pip install pygame")
         finally:
+            # Small delay before cleanup to ensure file isn't locked
+            await asyncio.sleep(0.2)
             try:
                 os.unlink(tmp_path)
             except:
